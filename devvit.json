@@ -1,0 +1,70 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "nmsce-flair-app",
+  "post": {
+    "dir": "public",
+    "entrypoints": {
+      "default": {
+        "inline": true,
+        "entry": "splash.html"
+      },
+      "game": {
+        "entry": "game.html"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.js"
+  },
+  "permissions": {
+    "http": {
+      "enable": true,
+      "domains": ["discord.com", "discordapp.com"]
+    }
+  },
+  "settings": {
+    "subreddit": {
+      "editable-flair-ids": {
+        "type": "string",
+        "label": "Editable flair template IDs",
+        "helpText": "JSON object mapping editable post flair template IDs to labels.",
+        "defaultValue": "{\n  \"e8796ff2-f226-11ee-ba3d-c235cf56b6b6\": \"Fabricated Ship\",\n  \"41384622-0123-11e9-b9f1-0ec22fa6984a\": \"Starship\",\n  \"3f6af1de-02c5-11e9-93f4-0e9e9df057fe\": \"Multi Tool\",\n  \"7067471e-7326-11eb-ad17-0ef6cf5a16d9\": \"Fauna\",\n  \"0f48ed4c-c94f-11ea-bdb0-0e37ef4aee8f\": \"Derelict Freighter\",\n  \"89897e96-30d1-11ed-9b36-46e9dc87d490\": \"Freighter\",\n  \"a4e1c45a-30d1-11ed-afb5-7241f373606e\": \"Frigate\",\n  \"d10b49f8-7dac-11e7-9444-0ef61ee650f0\": \"Base\",\n  \"b5e1cc00-30d1-11ed-86ad-de227c50b866\": \"Planet\"\n}"
+      },
+      "community-event-flair-ids": {
+        "type": "string",
+        "label": "Community event flair template IDs",
+        "helpText": "JSON object mapping event flair template IDs to labels.",
+        "defaultValue": "{\n  \"69f9e820-7a93-11ed-bd06-e24cb244222e\": \"Community Event\"\n}"
+      },
+      "discord-webhook-url": {
+        "type": "string",
+        "label": "Discord webhook URL",
+        "helpText": "Optional Discord webhook for flair bot logs.",
+        "defaultValue": ""
+      }
+    }
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Create a new post",
+        "description": "nmsce-flair-app",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/post-create"
+      }
+    ]
+  },
+  "triggers": {
+    "onPostSubmit": "/internal/triggers/post-submit",
+    "onCommentSubmit": "/internal/triggers/comment-submit"
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types ./tools/build.ts --watch",
+    "build": "node --experimental-strip-types ./tools/build.ts --minify"
+  },
+  "dev": {
+    "subreddit": "nmsce_flair_app_dev"
+  }
+}
