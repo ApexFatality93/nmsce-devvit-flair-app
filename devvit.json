@@ -54,6 +54,12 @@
         "label": "Restoration comment template",
         "helpText": "Reply posted after the flair is repaired and the post is restored. Supports {{repairedFlair}}.",
         "defaultValue": "Your post flair has been updated to `{{repairedFlair}}` and your post has been restored."
+      },
+      "request-flair-template-id": {
+        "type": "string",
+        "label": "Request flair template ID",
+        "helpText": "Optional flair template ID used by the moderator !request comment command.",
+        "defaultValue": ""
       }
     }
   },
@@ -70,7 +76,8 @@
   },
   "triggers": {
     "onPostSubmit": "/internal/triggers/post-submit",
-    "onCommentSubmit": "/internal/triggers/comment-submit"
+    "onCommentSubmit": "/internal/triggers/comment-submit",
+    "onPostFlairUpdate": "/internal/triggers/post-flair-update"
   },
   "scripts": {
     "dev": "node --experimental-strip-types ./tools/build.ts --watch",

@@ -66,10 +66,16 @@ export function validateEditableFlair(
 
 export function validateEventFlair(
   flairText: string | undefined,
+  sourceText?: string | undefined,
 ): FlairValidationResult {
   const flair = flairText ?? "";
+  const source = sourceText ?? "";
   const flairItem = flair.split("/")[0] ?? "";
-  const flairGalaxy = matchFirst(flair, GALAXY_RULES);
+  let flairGalaxy = matchFirst(flair, GALAXY_RULES);
+
+  if (!flairGalaxy) {
+    flairGalaxy = matchFirst(source, GALAXY_RULES);
+  }
 
   const valid = Boolean(flairItem && flairGalaxy);
   const normalizedText = valid ? `${flairItem}/${flairGalaxy}` : "";

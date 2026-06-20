@@ -13,9 +13,13 @@ type ErrorResponse = {
 };
 
 const PROMPT_COMMENT_TTL_SECONDS = 60 * 60 * 24 * 30;
+const LAST_VALID_FLAIR_KEY_PREFIX = "last-valid-flair:";
+const LAST_FLAIR_TEXT_KEY_PREFIX = "last-flair-text:";
+const LAST_FLAIR_TEMPLATE_ID_KEY_PREFIX = "last-flair-template-id:";
 const DISCORD_WEBHOOK_URL_SETTING = "discord-webhook-url";
 const REMOVAL_COMMENT_TEMPLATE_SETTING = "removal-comment-template";
 const RESTORATION_COMMENT_TEMPLATE_SETTING = "restoration-comment-template";
+const REQUEST_FLAIR_TEMPLATE_ID_SETTING = "request-flair-template-id";
 const DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
 const DISCORD_FIELD_VALUE_LIMIT = 1024;
 const DISCORD_MAX_FIELDS = 25;
@@ -25,6 +29,15 @@ const DEFAULT_REMOVAL_COMMENT_TEMPLATE =
   "\n\nMissing: {{missing}}.{{galaxyHelp}}";
 const DEFAULT_RESTORATION_COMMENT_TEMPLATE =
   "Your post flair has been updated to `{{repairedFlair}}` and your post has been restored.";
+const REDIRECT_COMMAND = "!redirect";
+const REQUEST_COMMAND = "!request";
+const REDIRECT_COMMENT_TEXT =
+  "Thank you for posting to r/NMSCoordinateExchange! Please make your request in the pinned trading post instead. " +
+  "The trading thread was specifically created for requesting items that are generally not allowed as posts themselves. " +
+  "See rule 8.";
+const REQUEST_COMMENT_TEXT =
+  "Many items are easy to find using the [search bar](https://www.reddit.com/r/NMSGlyphExchange/comments/1byxb6p/how_to_navigate_the_search_bar/) or the [nmsce app](https://nmsge.com/). Please search before posting a request. If you haven't searched and subsequently find your item upon searching please delete this post.\n\n" +
+  "Posts requesting easily found items will be removed. Requests are only allowed for locations, not a trade, of items (excepting dragon eggs). Requests for expedition items are not allowed because they have no location.";
 
 type DiscordEmbedField = {
   name: string;
@@ -42,6 +55,7 @@ type TriggerCommentPayload = {
 };
 type FlairRepairSource =
   | "post title"
+  | "previous flair"
   | "triggering comment"
   | "existing OP comment"
   | "post body";
@@ -49,6 +63,10 @@ type FlairRepairResult = {
   normalizedFlair: string;
   source: FlairRepairSource;
   changed: boolean;
+};
+type AdditionalRepairSource = {
+  source: FlairRepairSource;
+  text?: string;
 };
 type PromptCommentResult = {
   prompted: boolean;
@@ -172,6 +190,12 @@ function getDiscordColor(title: string): number {
     case "Post restored after flair repair":
     case "Community event flair normalized":
       return 3066993;
+    case "Post redirected to trading thread":
+      return 15158332;
+    case "Post marked as request":
+      return 15844367;
+    case "Post flair manually changed to request":
+      return 15844367;
     default:
       return 3447003;
   }
@@ -200,6 +224,21 @@ function buildDiscordSummary(
     case "Post restored after flair repair":
       return truncateForDiscord(
         `Approved the post after the author provided enough info to repair the flair.`,
+        DISCORD_EMBED_DESCRIPTION_LIMIT,
+      );
+    case "Post redirected to trading thread":
+      return truncateForDiscord(
+        `A moderator redirected the post to the pinned trading thread and removed the original post.`,
+        DISCORD_EMBED_DESCRIPTION_LIMIT,
+      );
+    case "Post marked as request":
+      return truncateForDiscord(
+        `A moderator changed the post flair to Request and left request guidance on the post.`,
+        DISCORD_EMBED_DESCRIPTION_LIMIT,
+      );
+    case "Post flair manually changed to request":
+      return truncateForDiscord(
+        `The post flair was manually changed to Request and the app left request guidance on the post.`,
         DISCORD_EMBED_DESCRIPTION_LIMIT,
       );
     default:
@@ -234,8 +273,6 @@ function buildDiscordFields(
   switch (title) {
     case "Post removed for missing flair info":
       fields.push(
-        formatInlineField("Subreddit", details.subredditName),
-        formatInlineField("Post ID", details.postId),
         formatInlineField("Post Author", details.postAuthor),
         formatBlockField("Post Title", details.title),
         formatBlockField("Current Flair", details.flairText),
@@ -244,10 +281,7 @@ function buildDiscordFields(
       break;
     case "Editable flair repaired":
       fields.push(
-        formatInlineField("Subreddit", details.subredditName),
-        formatInlineField("Post ID", details.postId),
         formatInlineField("Repair Source", details.repairSource),
-        formatInlineField("Flair Template ID", details.flairTemplateId),
         formatBlockField("Post Title", details.title),
         formatBlockField(
           "Flair Change",
@@ -257,9 +291,6 @@ function buildDiscordFields(
       break;
     case "Community event flair normalized":
       fields.push(
-        formatInlineField("Subreddit", details.subredditName),
-        formatInlineField("Post ID", details.postId),
-        formatInlineField("Flair Template ID", details.flairTemplateId),
         formatBlockField("Post Title", details.title),
         formatBlockField(
           "Flair Change",
@@ -269,16 +300,43 @@ function buildDiscordFields(
       break;
     case "Post restored after flair repair":
       fields.push(
-        formatInlineField("Subreddit", details.subredditName),
-        formatInlineField("Post ID", details.postId),
-        formatInlineField("Comment ID", details.commentId),
         formatInlineField("Post Author", details.postAuthor),
         formatInlineField("Repair Source", details.repairSource),
-        formatInlineField("Flair Template ID", details.flairTemplateId),
         formatBlockField(
           "Flair Change",
           buildFlairTransition(details.previousFlair, details.repairedFlair),
         ),
+      );
+      break;
+    case "Post redirected to trading thread":
+      fields.push(
+        formatInlineField("Moderator", details.moderatorName),
+        formatInlineField("Post Author", details.postAuthor),
+        formatBlockField("Post Title", details.title),
+        formatBlockField("Action", "Top-level redirect comment posted; mod command comment removed; post removed."),
+      );
+      break;
+    case "Post marked as request":
+      fields.push(
+        formatInlineField("Moderator", details.moderatorName),
+        formatInlineField("Post Author", details.postAuthor),
+        formatBlockField("Post Title", details.title),
+        formatBlockField(
+          "Flair Change",
+          buildFlairTransition(details.previousFlair, details.repairedFlair),
+        ),
+        formatBlockField("Action", "Request flair applied; mod command comment removed; top-level request guidance comment posted."),
+      );
+      break;
+    case "Post flair manually changed to request":
+      fields.push(
+        formatInlineField("Post Author", details.postAuthor),
+        formatBlockField("Post Title", details.title),
+        formatBlockField(
+          "Flair Change",
+          buildFlairTransition(details.previousFlair, details.repairedFlair),
+        ),
+        formatBlockField("Action", "Top-level request guidance comment posted after a manual flair change to Request."),
       );
       break;
     default:
@@ -371,6 +429,122 @@ async function getRestorationCommentTemplate(): Promise<string> {
   );
 }
 
+function isRedirectCommand(commentBody: string | undefined): boolean {
+  return commentBody?.trim().toLowerCase() === REDIRECT_COMMAND;
+}
+
+async function getRequestFlairTemplateId(): Promise<string | null> {
+  const rawValue = await settings.get(REQUEST_FLAIR_TEMPLATE_ID_SETTING);
+  if (typeof rawValue !== "string") {
+    return null;
+  }
+
+  const trimmedValue = rawValue.trim();
+  return trimmedValue === "" ? null : trimmedValue;
+}
+
+function isRequestCommand(commentBody: string | undefined): boolean {
+  return commentBody?.trim().toLowerCase() === REQUEST_COMMAND;
+}
+
+async function isSubredditModerator(
+  subredditName: string,
+  username: string | null | undefined,
+): Promise<boolean> {
+  if (!username?.trim()) {
+    return false;
+  }
+
+  const moderators = await reddit
+    .getModerators({
+      subredditName,
+      username,
+      limit: 1,
+      pageSize: 1,
+    })
+    .all();
+
+  return moderators.some(
+    (moderator) => moderator.username.toLowerCase() === username.toLowerCase(),
+  );
+}
+
+async function getFlairTemplateText(
+  subredditName: string,
+  flairTemplateId: string,
+): Promise<string | null> {
+  const subreddit = await reddit.getSubredditByName(subredditName);
+  const templates = await subreddit.getPostFlairTemplates();
+  const template = templates.find((item) => item.id === flairTemplateId);
+  return template?.text ?? null;
+}
+
+function getLastValidFlairKey(postId: string): string {
+  return `${LAST_VALID_FLAIR_KEY_PREFIX}${postId}`;
+}
+
+function getLastFlairTextKey(postId: string): string {
+  return `${LAST_FLAIR_TEXT_KEY_PREFIX}${postId}`;
+}
+
+function getLastFlairTemplateIdKey(postId: string): string {
+  return `${LAST_FLAIR_TEMPLATE_ID_KEY_PREFIX}${postId}`;
+}
+
+async function getLastValidFlair(postId: string): Promise<string | null> {
+  const value = await redis.get(getLastValidFlairKey(postId));
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  return value;
+}
+
+async function setLastValidFlair(postId: string, flairText: string): Promise<void> {
+  if (!flairText.trim()) {
+    return;
+  }
+
+  await redis.set(getLastValidFlairKey(postId), flairText);
+}
+
+async function getLastFlairText(postId: string): Promise<string | null> {
+  const value = await redis.get(getLastFlairTextKey(postId));
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  return value;
+}
+
+async function setLastFlairText(postId: string, flairText: string): Promise<void> {
+  if (!flairText.trim()) {
+    return;
+  }
+
+  await redis.set(getLastFlairTextKey(postId), flairText);
+}
+
+async function getLastFlairTemplateId(postId: string): Promise<string | null> {
+  const value = await redis.get(getLastFlairTemplateIdKey(postId));
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  return value;
+}
+
+async function setLastFlairTemplateId(
+  postId: string,
+  flairTemplateId: string | null | undefined,
+): Promise<void> {
+  if (!flairTemplateId?.trim()) {
+    return;
+  }
+
+  await redis.set(getLastFlairTemplateIdKey(postId), flairTemplateId);
+}
+
 async function sendDiscordLog(
   title: string,
   details: Record<string, unknown>,
@@ -424,7 +598,7 @@ async function tryRepairEditableFlair(
   title: string,
   body: string | undefined,
   authorName: string,
-  preferredCommentBody?: string,
+  additionalRepairSources: AdditionalRepairSource[] = [],
 ): Promise<FlairRepairResult | null> {
   let result = validateEditableFlair(flairText, title);
   console.log("Editable flair validation result from title", result);
@@ -446,13 +620,17 @@ async function tryRepairEditableFlair(
     };
   }
 
-  if (preferredCommentBody) {
+  for (const additionalSource of additionalRepairSources) {
+    if (!additionalSource.text?.trim()) {
+      continue;
+    }
+
     result = validateEditableFlair(
       flairText,
-      combineSourceParts(title, preferredCommentBody),
+      combineSourceParts(title, additionalSource.text),
     );
     console.log(
-      "Editable flair validation result from triggering comment",
+      `Editable flair validation result from ${additionalSource.source}`,
       result,
     );
 
@@ -468,7 +646,7 @@ async function tryRepairEditableFlair(
       }
       return {
         normalizedFlair: result.normalizedText || flairText,
-        source: "triggering comment",
+        source: additionalSource.source,
         changed: result.normalizedText !== flairText,
       };
     }
@@ -625,6 +803,12 @@ async function onRequest(
     return;
   }
 
+  if (url === "/internal/triggers/post-flair-update") {
+    const body = await onPostFlairUpdate(req);
+    writeJSON<TriggerResponse>(200, body, rsp);
+    return;
+  }
+
   writeJSON<ErrorResponse>(404, { error: "not found", status: 404 }, rsp);
 }
 
@@ -669,6 +853,9 @@ async function onPostSubmit(req: IncomingMessage): Promise<TriggerResponse> {
   const flairTemplateId = post.flair?.templateId;
   const flairText = post.flair?.text ?? "";
 
+  await setLastFlairText(post.id, flairText);
+  await setLastFlairTemplateId(post.id, flairTemplateId);
+
   if (!flairTemplateId) {
     console.log("Skipping post with no flair template ID");
     return {};
@@ -683,7 +870,7 @@ async function onPostSubmit(req: IncomingMessage): Promise<TriggerResponse> {
       post.title,
       post.body,
       post.authorName,
-      undefined,
+      [],
     );
     if (repairResult?.changed) {
       await sendDiscordLog("Editable flair repaired", {
@@ -695,6 +882,9 @@ async function onPostSubmit(req: IncomingMessage): Promise<TriggerResponse> {
         repairedFlair: repairResult.normalizedFlair,
         repairSource: repairResult.source,
       });
+    }
+    if (repairResult) {
+      await setLastValidFlair(post.id, repairResult.normalizedFlair);
     }
     if (!repairResult) {
       const promptResult = await maybeLeavePromptComment(
@@ -738,6 +928,9 @@ async function onPostSubmit(req: IncomingMessage): Promise<TriggerResponse> {
         previousFlair: flairText,
         repairedFlair: result.normalizedText,
       });
+      await setLastValidFlair(post.id, result.normalizedText);
+    } else if (result.valid) {
+      await setLastValidFlair(post.id, result.normalizedText);
     }
   }
 
@@ -782,6 +975,69 @@ async function onCommentSubmit(req: IncomingMessage): Promise<TriggerResponse> {
   const flairTemplateId = post.flair?.templateId;
   const flairText = post.flair?.text ?? "";
 
+  if (
+    comment &&
+    isRedirectCommand(comment.body) &&
+    (await isSubredditModerator(post.subredditName, comment.authorName))
+  ) {
+    await post.addComment({ text: REDIRECT_COMMENT_TEXT });
+    await comment.remove(false);
+    await post.remove(false);
+    console.log(
+      `Posted redirect comment on ${post.id} from moderator command on ${comment.id}`,
+    );
+    await sendDiscordLog("Post redirected to trading thread", {
+      postId: post.id,
+      subredditName: post.subredditName,
+      commentId: comment.id,
+      moderatorName: comment.authorName,
+      postAuthor: post.authorName,
+      title: post.title,
+    });
+    return {};
+  }
+
+  if (
+    comment &&
+    isRequestCommand(comment.body) &&
+    (await isSubredditModerator(post.subredditName, comment.authorName))
+  ) {
+    const requestFlairTemplateId = await getRequestFlairTemplateId();
+    if (!requestFlairTemplateId) {
+      console.log("Ignoring !request command because request flair template ID is not configured");
+      return {};
+    }
+
+    const requestFlairText =
+      (await getFlairTemplateText(post.subredditName, requestFlairTemplateId)) ?? undefined;
+
+    await reddit.setPostFlair({
+      postId: post.id,
+      subredditName: post.subredditName,
+      flairTemplateId: requestFlairTemplateId,
+      text: requestFlairText,
+    });
+    await setLastValidFlair(post.id, requestFlairText ?? "Request");
+    await setLastFlairText(post.id, requestFlairText ?? "Request");
+    await setLastFlairTemplateId(post.id, requestFlairTemplateId);
+    await comment.remove(false);
+    await post.addComment({ text: REQUEST_COMMENT_TEXT });
+    console.log(
+      `Applied request flair on ${post.id} from moderator command on ${comment.id}`,
+    );
+    await sendDiscordLog("Post marked as request", {
+      postId: post.id,
+      subredditName: post.subredditName,
+      commentId: comment.id,
+      moderatorName: comment.authorName,
+      postAuthor: post.authorName,
+      title: post.title,
+      previousFlair: flairText,
+      repairedFlair: requestFlairText ?? "Request",
+    });
+    return {};
+  }
+
   if (!flairTemplateId || !editableFlairIds[flairTemplateId]) {
     return {};
   }
@@ -808,11 +1064,12 @@ async function onCommentSubmit(req: IncomingMessage): Promise<TriggerResponse> {
     post.title,
     post.body,
     post.authorName,
-    comment.body,
+    [{ source: "triggering comment", text: comment.body }],
   );
 
   if (repairResult) {
     await post.approve();
+    await setLastValidFlair(post.id, repairResult.normalizedFlair);
     const restorationTemplate = await getRestorationCommentTemplate();
     await comment.reply({
       text: fillTemplate(restorationTemplate, {
@@ -837,6 +1094,174 @@ async function onCommentSubmit(req: IncomingMessage): Promise<TriggerResponse> {
       postAuthor: post.authorName,
     });
   }
+
+  return {};
+}
+
+async function onPostFlairUpdate(req: IncomingMessage): Promise<TriggerResponse> {
+  const payload = await readJSON<TriggerPostPayload>(req).catch(
+    (): TriggerPostPayload => ({}),
+  );
+
+  const postId = payload.post?.id ?? context.postId;
+
+  if (!postId) {
+    console.log("PostFlairUpdate trigger hit with no postId in payload or context");
+    return {};
+  }
+
+  const post = await reddit.getPostById(normalizeThingId(postId, "t3_"));
+  const rawEditableFlairIds = await settings.get("editable-flair-ids");
+  const rawCommunityEventFlairIds = await settings.get(
+    "community-event-flair-ids",
+  );
+  const editableFlairIds = parseFlairIdMap(
+    rawEditableFlairIds,
+    DEFAULT_EDITABLE_FLAIR_IDS,
+  );
+  const communityEventFlairIds = parseFlairIdMap(
+    rawCommunityEventFlairIds,
+    DEFAULT_COMMUNITY_EVENT_FLAIR_IDS,
+  );
+
+  const flairTemplateId = post.flair?.templateId;
+  const flairText = post.flair?.text ?? "";
+  const previousValidFlair = await getLastValidFlair(post.id);
+  const previousFlairText = await getLastFlairText(post.id);
+  const previousFlairTemplateId = await getLastFlairTemplateId(post.id);
+  const requestFlairTemplateId = await getRequestFlairTemplateId();
+
+  console.log("PostFlairUpdate trigger hit", {
+    postId: post.id,
+    title: post.title,
+    flairTemplateId,
+    flairText,
+    previousValidFlair,
+    previousFlairText,
+    previousFlairTemplateId,
+    editableFlairConfigured: Boolean(
+      flairTemplateId && editableFlairIds[flairTemplateId],
+    ),
+    communityEventConfigured: Boolean(
+      flairTemplateId && communityEventFlairIds[flairTemplateId],
+    ),
+  });
+
+  if (!flairTemplateId) {
+    console.log("Skipping flair update with no flair template ID");
+    return {};
+  }
+
+  if (
+    requestFlairTemplateId &&
+    flairTemplateId === requestFlairTemplateId &&
+    previousFlairTemplateId !== requestFlairTemplateId
+  ) {
+    const requestFlairText =
+      (await getFlairTemplateText(post.subredditName, requestFlairTemplateId)) ?? "Request";
+    await post.addComment({ text: REQUEST_COMMENT_TEXT });
+    await sendDiscordLog("Post flair manually changed to request", {
+      postId: post.id,
+      subredditName: post.subredditName,
+      postAuthor: post.authorName,
+      title: post.title,
+      previousFlair: previousFlairText ?? previousValidFlair ?? "n/a",
+      repairedFlair: requestFlairText,
+    });
+    await setLastValidFlair(post.id, requestFlairText);
+    await setLastFlairText(post.id, requestFlairText);
+    await setLastFlairTemplateId(post.id, requestFlairTemplateId);
+    return {};
+  }
+
+  if (editableFlairIds[flairTemplateId]) {
+    const repairSources: AdditionalRepairSource[] = previousValidFlair
+      ? [{ source: "previous flair", text: previousValidFlair }]
+      : [];
+    const repairResult = await tryRepairEditableFlair(
+      post.id,
+      post.subredditName,
+      flairTemplateId,
+      flairText,
+      post.title,
+      post.body,
+      post.authorName,
+      repairSources,
+    );
+
+    if (repairResult?.changed) {
+      await sendDiscordLog("Editable flair repaired", {
+        postId: post.id,
+        subredditName: post.subredditName,
+        title: post.title,
+        flairTemplateId,
+        previousFlair: previousValidFlair ?? flairText,
+        repairedFlair: repairResult.normalizedFlair,
+        repairSource: repairResult.source,
+      });
+    }
+
+    if (repairResult) {
+      await setLastValidFlair(post.id, repairResult.normalizedFlair);
+      await setLastFlairText(post.id, repairResult.normalizedFlair);
+      await setLastFlairTemplateId(post.id, flairTemplateId);
+    } else {
+      const promptResult = await maybeLeavePromptComment(
+        post.id,
+        post.subredditName,
+        flairText,
+        post.title,
+        post.body,
+      );
+      if (promptResult.prompted) {
+        await sendDiscordLog("Post removed for missing flair info", {
+          postId: post.id,
+          subredditName: post.subredditName,
+          postAuthor: post.authorName,
+          title: post.title,
+          flairText,
+          missing: promptResult.missing.join(", "),
+        });
+      }
+      await setLastFlairText(post.id, flairText);
+      await setLastFlairTemplateId(post.id, flairTemplateId);
+    }
+
+    return {};
+  }
+
+  if (communityEventFlairIds[flairTemplateId]) {
+    const result = validateEventFlair(flairText, previousValidFlair ?? undefined);
+    console.log("Community event flair validation result from flair update", result);
+
+    if (result.valid && result.normalizedText !== flairText) {
+      await reddit.setPostFlair({
+        postId: post.id,
+        subredditName: post.subredditName,
+        flairTemplateId,
+        text: result.normalizedText,
+      });
+      console.log(`Updated event flair for ${post.id} to ${result.normalizedText}`);
+      await sendDiscordLog("Community event flair normalized", {
+        postId: post.id,
+        subredditName: post.subredditName,
+        title: post.title,
+        flairTemplateId,
+        previousFlair: previousValidFlair ?? flairText,
+        repairedFlair: result.normalizedText,
+      });
+      await setLastValidFlair(post.id, result.normalizedText);
+      await setLastFlairText(post.id, result.normalizedText);
+      await setLastFlairTemplateId(post.id, flairTemplateId);
+    } else if (result.valid) {
+      await setLastValidFlair(post.id, result.normalizedText);
+      await setLastFlairText(post.id, result.normalizedText);
+      await setLastFlairTemplateId(post.id, flairTemplateId);
+    }
+  }
+
+  await setLastFlairText(post.id, flairText);
+  await setLastFlairTemplateId(post.id, flairTemplateId);
 
   return {};
 }

@@ -4,5 +4,5 @@ export type FlairValidationResult = {
     reasons: string[];
 };
 export declare function validateEditableFlair(flairText: string | undefined, sourceText: string | undefined): FlairValidationResult;
-export declare function validateEventFlair(flairText: string | undefined): FlairValidationResult;
+export declare function validateEventFlair(flairText: string | undefined, sourceText?: string | undefined): FlairValidationResult;
 //# sourceMappingURL=flair-validator.d.ts.map
