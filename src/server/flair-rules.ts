@@ -14,7 +14,7 @@ export const DEFAULT_EDITABLE_FLAIR_IDS: Record<string, string> = {
   'b5e1cc00-30d1-11ed-86ad-de227c50b866': 'Planet',
 };
 
-export const TWO_PART_ITEMS = new Set([
+export const TWO_PART_ITEMS: Set<string> = new Set([
   'Living Ship',
   'Starship',
   'Multi Tool',
@@ -25,7 +25,7 @@ export const TWO_PART_ITEMS = new Set([
   'Planet',
 ]);
 
-export const THREE_PART_ITEMS = new Set(['Base', 'Farm']);
+export const THREE_PART_ITEMS: Set<string> = new Set(['Base', 'Farm']);
 
 export const ITEM_RULES: Array<[string, string]> = [
   ['Fabricted Ship', 'Fabricated Ship'],

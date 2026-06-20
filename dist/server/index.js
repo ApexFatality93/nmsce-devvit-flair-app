@@ -91301,7 +91301,13 @@ function validateEventFlair(flairText) {
 // src/server/server.ts
 var PROMPT_COMMENT_TTL_SECONDS = 60 * 60 * 24 * 30;
 var DISCORD_WEBHOOK_URL_SETTING = "discord-webhook-url";
-var DISCORD_EMBED_DESCRIPTION_LIMIT = 3800;
+var REMOVAL_COMMENT_TEMPLATE_SETTING = "removal-comment-template";
+var RESTORATION_COMMENT_TEMPLATE_SETTING = "restoration-comment-template";
+var DISCORD_EMBED_DESCRIPTION_LIMIT = 4096;
+var DISCORD_FIELD_VALUE_LIMIT = 1024;
+var DISCORD_MAX_FIELDS = 25;
+var DEFAULT_REMOVAL_COMMENT_TEMPLATE = "Your post has been temporarily removed because its flair is missing required information. Please reply to this comment with the missing detail and I will fix the flair automatically and restore the post. \n\nMissing: {{missing}}.{{galaxyHelp}}";
+var DEFAULT_RESTORATION_COMMENT_TEMPLATE = "Your post flair has been updated to `{{repairedFlair}}` and your post has been restored.";
 function normalizeThingId(id, prefix) {
   return id.startsWith(prefix) ? id : `${prefix}${id}`;
 }
@@ -91339,11 +91345,154 @@ function truncateForDiscord(value, limit) {
   }
   return `${value.slice(0, limit - 3)}...`;
 }
-function serializeDiscordDetails(details) {
-  return truncateForDiscord(
-    JSON.stringify(details, null, 2),
-    DISCORD_EMBED_DESCRIPTION_LIMIT
-  );
+function toDisplayText(value) {
+  if (value === null || value === void 0) {
+    return "n/a";
+  }
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  if (typeof value === "string") {
+    return value.trim() === "" ? "n/a" : value;
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+function truncateFieldValue(value) {
+  return truncateForDiscord(value, DISCORD_FIELD_VALUE_LIMIT);
+}
+function formatInlineField(name, value) {
+  return {
+    name,
+    value: truncateFieldValue(toDisplayText(value)),
+    inline: true
+  };
+}
+function formatBlockField(name, value) {
+  return {
+    name,
+    value: truncateFieldValue(toDisplayText(value))
+  };
+}
+function buildFlairTransition(before, after) {
+  return `${toDisplayText(before)} -> ${toDisplayText(after)}`;
+}
+function fillTemplate(template, values) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => values[key] ?? "");
+}
+function getDiscordColor(title) {
+  switch (title) {
+    case "Post removed for missing flair info":
+      return 15105570;
+    case "Editable flair repaired":
+    case "Post restored after flair repair":
+    case "Community event flair normalized":
+      return 3066993;
+    default:
+      return 3447003;
+  }
+}
+function buildDiscordSummary(title, details) {
+  switch (title) {
+    case "Post removed for missing flair info":
+      return truncateForDiscord(
+        `Removed the post and asked the author to reply with missing flair details: ${toDisplayText(details.missing)}.`,
+        DISCORD_EMBED_DESCRIPTION_LIMIT
+      );
+    case "Editable flair repaired":
+      return truncateForDiscord(
+        `Repaired editable flair from ${toDisplayText(details.repairSource)}.`,
+        DISCORD_EMBED_DESCRIPTION_LIMIT
+      );
+    case "Community event flair normalized":
+      return truncateForDiscord(
+        `Normalized a community event flair.`,
+        DISCORD_EMBED_DESCRIPTION_LIMIT
+      );
+    case "Post restored after flair repair":
+      return truncateForDiscord(
+        `Approved the post after the author provided enough info to repair the flair.`,
+        DISCORD_EMBED_DESCRIPTION_LIMIT
+      );
+    default:
+      return truncateForDiscord(title, DISCORD_EMBED_DESCRIPTION_LIMIT);
+  }
+}
+function buildDiscordFields(title, details, postUrl, commentUrl) {
+  const fields = [];
+  if (postUrl) {
+    fields.push({
+      name: "Reddit Post",
+      value: `[Open post](${postUrl})`,
+      inline: true
+    });
+  }
+  if (commentUrl) {
+    fields.push({
+      name: "Reddit Comment",
+      value: `[Open comment](${commentUrl})`,
+      inline: true
+    });
+  }
+  switch (title) {
+    case "Post removed for missing flair info":
+      fields.push(
+        formatInlineField("Subreddit", details.subredditName),
+        formatInlineField("Post ID", details.postId),
+        formatInlineField("Post Author", details.postAuthor),
+        formatBlockField("Post Title", details.title),
+        formatBlockField("Current Flair", details.flairText),
+        formatBlockField("Missing Details", details.missing)
+      );
+      break;
+    case "Editable flair repaired":
+      fields.push(
+        formatInlineField("Subreddit", details.subredditName),
+        formatInlineField("Post ID", details.postId),
+        formatInlineField("Repair Source", details.repairSource),
+        formatInlineField("Flair Template ID", details.flairTemplateId),
+        formatBlockField("Post Title", details.title),
+        formatBlockField(
+          "Flair Change",
+          buildFlairTransition(details.previousFlair, details.repairedFlair)
+        )
+      );
+      break;
+    case "Community event flair normalized":
+      fields.push(
+        formatInlineField("Subreddit", details.subredditName),
+        formatInlineField("Post ID", details.postId),
+        formatInlineField("Flair Template ID", details.flairTemplateId),
+        formatBlockField("Post Title", details.title),
+        formatBlockField(
+          "Flair Change",
+          buildFlairTransition(details.previousFlair, details.repairedFlair)
+        )
+      );
+      break;
+    case "Post restored after flair repair":
+      fields.push(
+        formatInlineField("Subreddit", details.subredditName),
+        formatInlineField("Post ID", details.postId),
+        formatInlineField("Comment ID", details.commentId),
+        formatInlineField("Post Author", details.postAuthor),
+        formatInlineField("Repair Source", details.repairSource),
+        formatInlineField("Flair Template ID", details.flairTemplateId),
+        formatBlockField(
+          "Flair Change",
+          buildFlairTransition(details.previousFlair, details.repairedFlair)
+        )
+      );
+      break;
+    default:
+      for (const [name, value] of Object.entries(details)) {
+        fields.push(formatBlockField(name, value));
+      }
+      break;
+  }
+  return fields.filter((field) => field.value.trim() !== "").slice(0, DISCORD_MAX_FIELDS);
 }
 function stripThingPrefix(id) {
   if (!id) {
@@ -91378,6 +91527,26 @@ async function getDiscordWebhookUrl() {
   }
   return trimmedValue;
 }
+async function getSettingStringWithDefault(key, fallback) {
+  const rawValue = await settings.get(key);
+  if (typeof rawValue !== "string") {
+    return fallback;
+  }
+  const trimmedValue = rawValue.trim();
+  return trimmedValue === "" ? fallback : rawValue;
+}
+async function getRemovalCommentTemplate() {
+  return getSettingStringWithDefault(
+    REMOVAL_COMMENT_TEMPLATE_SETTING,
+    DEFAULT_REMOVAL_COMMENT_TEMPLATE
+  );
+}
+async function getRestorationCommentTemplate() {
+  return getSettingStringWithDefault(
+    RESTORATION_COMMENT_TEMPLATE_SETTING,
+    DEFAULT_RESTORATION_COMMENT_TEMPLATE
+  );
+}
 async function sendDiscordLog(title, details) {
   const webhookUrl = await getDiscordWebhookUrl();
   if (!webhookUrl) {
@@ -91399,27 +91568,10 @@ async function sendDiscordLog(title, details) {
           {
             title,
             url: postUrl ?? void 0,
-            description: `\`\`\`json
-${serializeDiscordDetails(details)}
-\`\`\``,
-            color: 3447003,
+            description: buildDiscordSummary(title, details),
+            color: getDiscordColor(title),
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-            fields: [
-              ...postUrl ? [
-                {
-                  name: "Post",
-                  value: `[Open post](${postUrl})`,
-                  inline: true
-                }
-              ] : [],
-              ...commentUrl ? [
-                {
-                  name: "Comment",
-                  value: `[Open comment](${commentUrl})`,
-                  inline: true
-                }
-              ] : []
-            ]
+            fields: buildDiscordFields(title, details, postUrl, commentUrl)
           }
         ]
       })
@@ -91444,7 +91596,11 @@ async function tryRepairEditableFlair(postId, subredditName, flairTemplateId, fl
       });
       console.log(`Updated editable flair for ${postId} to ${result.normalizedText}`);
     }
-    return result.normalizedText || flairText;
+    return {
+      normalizedFlair: result.normalizedText || flairText,
+      source: "post title",
+      changed: result.normalizedText !== flairText
+    };
   }
   if (preferredCommentBody) {
     result = validateEditableFlair(
@@ -91465,7 +91621,11 @@ async function tryRepairEditableFlair(postId, subredditName, flairTemplateId, fl
         });
         console.log(`Updated editable flair for ${postId} to ${result.normalizedText}`);
       }
-      return result.normalizedText || flairText;
+      return {
+        normalizedFlair: result.normalizedText || flairText,
+        source: "triggering comment",
+        changed: result.normalizedText !== flairText
+      };
     }
   }
   const comments = await reddit.getComments({
@@ -91494,7 +91654,11 @@ async function tryRepairEditableFlair(postId, subredditName, flairTemplateId, fl
         });
         console.log(`Updated editable flair for ${postId} to ${result.normalizedText}`);
       }
-      return result.normalizedText || flairText;
+      return {
+        normalizedFlair: result.normalizedText || flairText,
+        source: "existing OP comment",
+        changed: result.normalizedText !== flairText
+      };
     }
   }
   result = validateEditableFlair(flairText, combineSourceParts(title, body));
@@ -91507,46 +91671,57 @@ async function tryRepairEditableFlair(postId, subredditName, flairTemplateId, fl
       text: result.normalizedText
     });
     console.log(`Updated editable flair for ${postId} to ${result.normalizedText}`);
-    return result.normalizedText;
+    return {
+      normalizedFlair: result.normalizedText,
+      source: "post body",
+      changed: true
+    };
   }
   return null;
 }
-async function maybeLeavePromptComment(postId, flairText, title, body) {
+async function maybeLeavePromptComment(postId, subredditName, flairText, title, body) {
   const titleResult = validateEditableFlair(flairText, title);
   if (titleResult.valid) {
-    return;
+    return { prompted: false, missing: [] };
   }
   const combinedResult = validateEditableFlair(
     flairText,
     combineSourceParts(title, body)
   );
   if (combinedResult.valid) {
-    return;
+    return { prompted: false, missing: [] };
   }
   const missing = combinedResult.reasons.length <= titleResult.reasons.length ? combinedResult.reasons : titleResult.reasons;
   if (missing.length === 0) {
-    return;
+    return { prompted: false, missing: [] };
   }
   const bodyResult = validateEditableFlair(flairText, body);
   if (bodyResult.valid) {
-    return;
+    return { prompted: false, missing: [] };
   }
   const promptKey = `flair-prompt:${postId}`;
   const alreadyPrompted = await redis.get(promptKey);
   if (alreadyPrompted === "1") {
     console.log(`Prompt comment already left for ${postId}`);
-    return;
+    return { prompted: false, missing };
   }
   const post = await reddit.getPostById(normalizeThingId(postId, "t3_"));
   const galaxyHelp = missing.includes("galaxy") ? " \n\nIf you need it, here is a [list of galaxy names](https://nomanssky.miraheze.org/wiki/Galaxy#List_of_Galaxies)" : "";
-  const prompt = `Your post has been temporarily removed because its flair is missing required information. Please reply to this comment with the missing detail and I will fix the flair automatically and restore the post. 
-
-Missing: ${missing.join(", ")}.` + galaxyHelp;
+  const removalTemplate = await getRemovalCommentTemplate();
+  const prompt = fillTemplate(removalTemplate, {
+    missing: missing.join(", "),
+    galaxyHelp,
+    subredditName,
+    postId,
+    flairText,
+    title
+  });
   await post.addComment({ text: prompt });
   await post.remove(false);
   await redis.set(promptKey, "1");
   await redis.expire(promptKey, PROMPT_COMMENT_TTL_SECONDS);
   console.log(`Left prompt comment and removed post ${postId}`);
+  return { prompted: true, missing };
 }
 async function serverOnRequest(req, rsp) {
   try {
@@ -91572,13 +91747,15 @@ async function onRequest(req, rsp) {
   writeJSON(404, { error: "not found", status: 404 }, rsp);
 }
 async function onPostSubmit(req) {
-  const payload = await readJSON(req).catch(() => ({}));
+  const payload = await readJSON(req).catch(
+    () => ({})
+  );
   const postId = payload.post?.id ?? context.postId;
   if (!postId) {
     console.log("PostSubmit trigger hit with no postId in payload or context");
     return {};
   }
-  const post = await reddit.getPostById(postId);
+  const post = await reddit.getPostById(normalizeThingId(postId, "t3_"));
   const rawEditableFlairIds = await settings.get("editable-flair-ids");
   const rawCommunityEventFlairIds = await settings.get(
     "community-event-flair-ids"
@@ -91603,19 +91780,6 @@ async function onPostSubmit(req) {
       post.flair?.templateId && communityEventFlairIds[post.flair.templateId]
     )
   });
-  await sendDiscordLog("PostSubmit trigger hit", {
-    postId: post.id,
-    subredditName: post.subredditName,
-    title: post.title,
-    flairTemplateId: post.flair?.templateId ?? null,
-    flairText: post.flair?.text ?? null,
-    editableFlairConfigured: Boolean(
-      post.flair?.templateId && editableFlairIds[post.flair.templateId]
-    ),
-    communityEventConfigured: Boolean(
-      post.flair?.templateId && communityEventFlairIds[post.flair.templateId]
-    )
-  });
   const flairTemplateId = post.flair?.templateId;
   const flairText = post.flair?.text ?? "";
   if (!flairTemplateId) {
@@ -91623,7 +91787,7 @@ async function onPostSubmit(req) {
     return {};
   }
   if (editableFlairIds[flairTemplateId]) {
-    const repairedFlair = await tryRepairEditableFlair(
+    const repairResult = await tryRepairEditableFlair(
       post.id,
       post.subredditName,
       flairTemplateId,
@@ -91633,8 +91797,35 @@ async function onPostSubmit(req) {
       post.authorName,
       void 0
     );
-    if (!repairedFlair) {
-      await maybeLeavePromptComment(post.id, flairText, post.title, post.body);
+    if (repairResult?.changed) {
+      await sendDiscordLog("Editable flair repaired", {
+        postId: post.id,
+        subredditName: post.subredditName,
+        title: post.title,
+        flairTemplateId,
+        previousFlair: flairText,
+        repairedFlair: repairResult.normalizedFlair,
+        repairSource: repairResult.source
+      });
+    }
+    if (!repairResult) {
+      const promptResult = await maybeLeavePromptComment(
+        post.id,
+        post.subredditName,
+        flairText,
+        post.title,
+        post.body
+      );
+      if (promptResult.prompted) {
+        await sendDiscordLog("Post removed for missing flair info", {
+          postId: post.id,
+          subredditName: post.subredditName,
+          postAuthor: post.authorName,
+          title: post.title,
+          flairText,
+          missing: promptResult.missing.join(", ")
+        });
+      }
     }
     return {};
   }
@@ -91649,19 +91840,22 @@ async function onPostSubmit(req) {
         text: result.normalizedText
       });
       console.log(`Updated event flair for ${post.id} to ${result.normalizedText}`);
-      await sendDiscordLog("Updated event flair", {
+      await sendDiscordLog("Community event flair normalized", {
         postId: post.id,
         subredditName: post.subredditName,
         title: post.title,
         flairTemplateId,
-        flairText: result.normalizedText
+        previousFlair: flairText,
+        repairedFlair: result.normalizedText
       });
     }
   }
   return {};
 }
 async function onCommentSubmit(req) {
-  const payload = await readJSON(req).catch(() => ({}));
+  const payload = await readJSON(req).catch(
+    () => ({})
+  );
   const commentId = payload.comment?.id;
   const postId = payload.post?.id ?? payload.comment?.postId ?? context.postId;
   if (!postId) {
@@ -91687,19 +91881,6 @@ async function onCommentSubmit(req) {
       post.flair?.templateId && editableFlairIds[post.flair.templateId]
     )
   });
-  await sendDiscordLog("CommentSubmit trigger hit", {
-    postId: post.id,
-    subredditName: post.subredditName,
-    commentId: commentId ?? null,
-    payloadCommentAuthor: payload.comment?.author ?? null,
-    commentAuthor: comment?.authorName ?? null,
-    postAuthor: post.authorName,
-    flairTemplateId: post.flair?.templateId ?? null,
-    flairText: post.flair?.text ?? null,
-    editableFlairConfigured: Boolean(
-      post.flair?.templateId && editableFlairIds[post.flair.templateId]
-    )
-  });
   const flairTemplateId = post.flair?.templateId;
   const flairText = post.flair?.text ?? "";
   if (!flairTemplateId || !editableFlairIds[flairTemplateId]) {
@@ -91714,7 +91895,7 @@ async function onCommentSubmit(req) {
     console.log("Skipping comment submit because flair is already valid");
     return {};
   }
-  const repairedFlair = await tryRepairEditableFlair(
+  const repairResult = await tryRepairEditableFlair(
     post.id,
     post.subredditName,
     flairTemplateId,
@@ -91724,18 +91905,29 @@ async function onCommentSubmit(req) {
     post.authorName,
     comment.body
   );
-  if (repairedFlair) {
+  if (repairResult) {
     await post.approve();
+    const restorationTemplate = await getRestorationCommentTemplate();
     await comment.reply({
-      text: `Your post flair has been updated to \`${repairedFlair}\` and your post has been restored.`
+      text: fillTemplate(restorationTemplate, {
+        repairedFlair: repairResult.normalizedFlair,
+        subredditName: post.subredditName,
+        postId: post.id,
+        commentId: comment.id,
+        flairText,
+        previousFlair: flairText,
+        title: post.title
+      })
     });
     console.log(`Approved post ${post.id} and left confirmation reply on comment ${comment.id}`);
-    await sendDiscordLog("Approved post and confirmed flair repair", {
+    await sendDiscordLog("Post restored after flair repair", {
       postId: post.id,
       subredditName: post.subredditName,
       commentId: comment.id,
       flairTemplateId,
-      repairedFlair,
+      previousFlair: flairText,
+      repairedFlair: repairResult.normalizedFlair,
+      repairSource: repairResult.source,
       postAuthor: post.authorName
     });
   }

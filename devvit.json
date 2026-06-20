@@ -42,6 +42,18 @@
         "label": "Discord webhook URL",
         "helpText": "Optional Discord webhook for flair bot logs.",
         "defaultValue": ""
+      },
+      "removal-comment-template": {
+        "type": "string",
+        "label": "Removal comment template",
+        "helpText": "Comment posted when a post is removed for missing flair info. Supports {{missing}} and {{galaxyHelp}}.",
+        "defaultValue": "Your post has been temporarily removed because its flair is missing required information. Please reply to this comment with the missing detail and I will fix the flair automatically and restore the post.\n\nMissing: {{missing}}.{{galaxyHelp}}"
+      },
+      "restoration-comment-template": {
+        "type": "string",
+        "label": "Restoration comment template",
+        "helpText": "Reply posted after the flair is repaired and the post is restored. Supports {{repairedFlair}}.",
+        "defaultValue": "Your post flair has been updated to `{{repairedFlair}}` and your post has been restored."
       }
     }
   },
