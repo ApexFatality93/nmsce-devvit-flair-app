@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NMSCE Flair App Privacy Policy</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f3ea;
+        --panel: #fffdf8;
+        --text: #1f1f1f;
+        --muted: #5d5d5d;
+        --accent: #8c3d1f;
+        --border: #ddd3c1;
+      }
+
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background: linear-gradient(180deg, #efe7d4 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+
+      main {
+        max-width: 840px;
+        margin: 48px auto;
+        padding: 32px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+      }
+
+      h1, h2 {
+        line-height: 1.15;
+      }
+
+      h1 {
+        margin-top: 0;
+        color: var(--accent);
+      }
+
+      p, li {
+        line-height: 1.6;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>NMSCE Flair App Privacy Policy</h1>
+      <p class="meta">Effective date: July 1, 2026</p>
+
+      <p>
+        This Privacy Policy describes how the NMSCE Flair App ("the app") handles
+        information when installed in a subreddit on Reddit.
+      </p>
+
+      <h2>What the App Does</h2>
+      <p>
+        The app helps moderators validate, repair, and manage post flairs in
+        subreddits where the app is installed. It can also respond to certain
+        moderator comment commands and optionally send moderation logs to a
+        Discord webhook configured by subreddit moderators.
+      </p>
+
+      <h2>Information the App Processes</h2>
+      <p>The app may process the following Reddit content and metadata:</p>
+      <ul>
+        <li>post titles, post bodies, post IDs, subreddit names, and post flair data</li>
+        <li>comment bodies, comment IDs, and comment author usernames</li>
+        <li>post author usernames</li>
+        <li>subreddit configuration entered by moderators into the app settings</li>
+      </ul>
+
+      <h2>How the App Uses Information</h2>
+      <ul>
+        <li>to validate whether a post flair contains required information</li>
+        <li>to repair or normalize flair text when enough information is available</li>
+        <li>to remove or restore posts according to moderator configuration and subreddit rules</li>
+        <li>to post automated moderator-assistance comments</li>
+        <li>to detect moderator-only comment commands such as <code>!redirect</code> and <code>!request</code></li>
+        <li>to optionally send moderation and flair action logs to a Discord webhook configured by moderators</li>
+      </ul>
+
+      <h2>Temporary Storage</h2>
+      <p>
+        The app may temporarily store limited operational data using Reddit/Devvit
+        storage, including prompt-state markers and recently seen or repaired flair
+        values. This storage is used only to support app behavior such as preventing
+        duplicate prompt comments and improving flair repair behavior.
+      </p>
+
+      <h2>Discord Webhook Logging</h2>
+      <p>
+        If subreddit moderators configure a Discord webhook URL, the app may send
+        event logs to that Discord destination. These logs can include post titles,
+        flair changes, Reddit links, post authors, moderator usernames, and other
+        moderation context relevant to the action taken.
+      </p>
+      <p>
+        Discord webhook logging is optional and is controlled by subreddit moderators.
+      </p>
+
+      <h2>Data Sharing</h2>
+      <p>
+        The app does not sell personal information. Information is only processed
+        as needed to operate within Reddit and, if enabled by moderators, to send
+        webhook logs to Discord.
+      </p>
+
+      <h2>Data Retention</h2>
+      <p>
+        Operational data is retained only as long as reasonably necessary for the
+        app to function. Some temporary values may expire automatically.
+      </p>
+
+      <h2>Children's Privacy</h2>
+      <p>
+        The app is intended for use within Reddit communities and is not directed
+        specifically to children.
+      </p>
+
+      <h2>Changes to This Policy</h2>
+      <p>
+        This Privacy Policy may be updated from time to time. The current version
+        should be kept at the same public URL used in the app settings.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        For questions about this Privacy Policy, replace this paragraph with your
+        real contact method before publishing, for example:
+        <br />
+        <strong>[INSERT CONTACT EMAIL OR REDDIT USERNAME]</strong>
+      </p>
+    </main>
+  </body>
+</html>

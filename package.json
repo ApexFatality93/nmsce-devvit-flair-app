@@ -9,7 +9,7 @@
     "deploy": "npm run build && devvit upload",
     "dev": "devvit playtest",
     "login": "devvit login",
-    "launch": "npm run build && npm run deploy && devvit publish",
+    "launch": "npm run build && npm run deploy && devvit publish --public",
     "type-check": "tsc --build"
   },
   "engines": {
